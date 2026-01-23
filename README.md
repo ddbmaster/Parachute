@@ -35,3 +35,47 @@ Spieler können beim Fallen ein Fallschirm-ähnliches Gleiten aktivieren, inkl. 
 
 1. Plugin bauen oder Release-DLL herunterladen
 2. DLL kopieren nach:
+csgo/addons/counterstrikesharp/plugins/Parachute/
+3. Server starten
+4. Config wird automatisch generiert unter:
+
+csgo/addons/counterstrikesharp/configs/plugins/Parachute/Parachute.json
+
+
+---
+
+## ⚙️ Konfiguration (`Parachute.json`)
+
+```json
+{
+"Enabled": true,
+"DecreaseVec": 50,
+"Linear": true,
+"FallSpeed": 100,
+"AccessFlag": "",
+"TeleportTicks": 300,
+"ParachuteModelEnabled": true,
+"ParachuteModel": "models/props_survival/parachute/chute.vmdl"
+}
+
+🔧 Config-Optionen erklärt
+
+| Option                  | Beschreibung                                                  |
+| ----------------------- | ------------------------------------------------------------- |
+| `Enabled`               | Plugin aktivieren/deaktivieren                                |
+| `DecreaseVec`           | Wie stark die Fallgeschwindigkeit pro Tick reduziert wird     |
+| `Linear`                | Lineares Gleiten (true) oder progressives Abbremsen           |
+| `FallSpeed`             | Maximale Fallgeschwindigkeit                                  |
+| `AccessFlag`            | Benötigtes Admin-Flag (leer = alle Spieler)                   |
+| `TeleportTicks`         | Nach wie vielen Ticks ein Teleport zur Stabilisierung erfolgt |
+| `ParachuteModelEnabled` | Parachute-Model anzeigen                                      |
+| `ParachuteModel`        | Pfad zum `.vmdl`-Model                                        |
+
+
+🎮 Benutzung
+Springen / Fallen
+USE-Taste (E) gedrückt halten
+Spieler gleitet kontrolliert nach unten
+Loslassen → normales Fallen
+
+Ende
