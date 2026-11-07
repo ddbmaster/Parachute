@@ -7,7 +7,7 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
 
 ## ✅ Eigenschaften
 
-- ⚙️ .NET 8
+- ⚙️ .NET 10
 - 🔄 Hot-Reload-sicher
 - 🛡️ Keine KeyNotFound- oder Disconnect-Crashes
 - 🧠 Pawn-basierte Physik (CSS-konform)
@@ -29,7 +29,7 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
 
 - 🎯 Counter-Strike 2 Server
 - 🧩 CounterStrikeSharp
-- ⚙️ .NET 8.0
+- ⚙️ .NET 10
 - 🖥️ Windows oder Linux
 
 ---
