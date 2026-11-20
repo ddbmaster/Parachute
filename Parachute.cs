@@ -1,8 +1,9 @@
-﻿using CounterStrikeSharp.API;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
 using CounterStrikeSharp.API.Modules.Admin;
 using CounterStrikeSharp.API.Modules.Entities.Constants;
+using CounterStrikeSharp.API.Modules.Utils;
 using System.Text.Json.Serialization;
 
 namespace Parachute;
@@ -19,27 +20,43 @@ public class ConfigGen : BasePluginConfig
     [JsonPropertyName("ParachuteModel")] public string ParachuteModel { get; set; } = "models/props_survival/parachute/chute.vmdl";
 }
 
-[MinimumApiVersion(179)]
+[MinimumApiVersion(358)]
 public class Parachute : BasePlugin, IPluginConfig<ConfigGen>
 {
     public override string ModuleName => "CS2 Parachute";
     public override string ModuleAuthor => "ddbmaster";
-    public override string ModuleVersion => "1.6.0";
+    public override string ModuleVersion => "1.6.1";
+
+    // Wie oft (in Ticks) waehrend des Gleitens das Zugriffsrecht erneut geprueft wird
+    private const int PermissionRecheckTicks = 64;
 
     public ConfigGen Config { get; set; } = null!;
     public void OnConfigParsed(ConfigGen config) => Config = config;
 
-    private readonly Dictionary<int, bool> bUsingPara = new();
-    private readonly Dictionary<int, int> gParaTicks = new();
-    private readonly Dictionary<int, CBaseEntity?> gParaModel = new();
+    private sealed class ParaState
+    {
+        public bool UsingPara;
+        public int TeleportTicks;
+        public int PermissionTicks;
+        // Handle statt Objekt-Referenz: wird nach Runden-/Mapwechsel sicher ungueltig
+        public CHandle<CDynamicProp>? Model;
+    }
 
-    private void EnsurePlayerState(CCSPlayerController player)
+    private readonly Dictionary<int, ParaState> _states = new();
+
+    private ParaState GetState(CCSPlayerController player)
     {
         var idx = (int)player.Index;
-        if (!bUsingPara.ContainsKey(idx)) bUsingPara[idx] = false;
-        if (!gParaTicks.ContainsKey(idx)) gParaTicks[idx] = 0;
-        if (!gParaModel.ContainsKey(idx)) gParaModel[idx] = null;
+        if (!_states.TryGetValue(idx, out var state))
+        {
+            state = new ParaState();
+            _states[idx] = state;
+        }
+        return state;
     }
+
+    private bool HasAccess(CCSPlayerController player) =>
+        string.IsNullOrEmpty(Config.AccessFlag) || AdminManager.PlayerHasPermissions(player, Config.AccessFlag);
 
     public override void Load(bool hotReload)
     {
@@ -49,26 +66,23 @@ public class Parachute : BasePlugin, IPluginConfig<ConfigGen>
             return;
         }
 
-        // Initialize for currently connected players on hot reload
-        if (hotReload)
-        {
-            Utilities.GetPlayers().ForEach(player =>
-            {
-                if (player == null || !player.IsValid || player.IsBot) return;
-                EnsurePlayerState(player);
-                bUsingPara[(int)player.Index] = false;
-                gParaTicks[(int)player.Index] = 0;
-                gParaModel[(int)player.Index] = null;
-            });
-        }
-
         if (Config.ParachuteModelEnabled)
         {
-            RegisterListener<Listeners.OnServerPrecacheResources>((manifest) =>
+            RegisterListener<Listeners.OnServerPrecacheResources>(manifest =>
             {
                 manifest.AddResource(Config.ParachuteModel);
             });
         }
+
+        // Map-/Rundenwechsel: Engine raeumt die Props weg, Zustand zuruecksetzen
+        RegisterListener<Listeners.OnMapStart>(_ => _states.Clear());
+        RegisterListener<Listeners.OnMapEnd>(() => _states.Clear());
+
+        RegisterEventHandler<EventRoundStart>((@event, info) =>
+        {
+            StopAll();
+            return HookResult.Continue;
+        });
 
         RegisterEventHandler<EventPlayerConnectFull>((@event, info) =>
         {
@@ -76,11 +90,7 @@ public class Parachute : BasePlugin, IPluginConfig<ConfigGen>
             if (player == null || !player.IsValid || player.IsBot)
                 return HookResult.Continue;
 
-            EnsurePlayerState(player);
-            bUsingPara[(int)player.Index] = false;
-            gParaTicks[(int)player.Index] = 0;
-            gParaModel[(int)player.Index] = null;
-
+            ResetPlayer(player);
             return HookResult.Continue;
         });
 
@@ -90,49 +100,8 @@ public class Parachute : BasePlugin, IPluginConfig<ConfigGen>
             if (player == null || !player.IsValid || player.IsBot)
                 return HookResult.Continue;
 
-            var idx = (int)player.Index;
-
-            // IMPORTANT: do NOT Remove() keys (prevents KeyNotFound races with other events)
-            bUsingPara[idx] = false;
-            gParaTicks[idx] = 0;
-
-            if (gParaModel.TryGetValue(idx, out var ent) && ent != null && ent.IsValid)
-                ent.Remove();
-
-            gParaModel[idx] = null;
-
+            ResetPlayer(player);
             return HookResult.Continue;
-        });
-
-        RegisterListener<Listeners.OnTick>(() =>
-        {
-            var players = Utilities.GetPlayers();
-
-            foreach (var player in players)
-            {
-                if (player == null
-                    || !player.IsValid
-                    || player.IsBot
-                    || !player.PawnIsAlive)
-                    continue;
-
-                if (!(Config.AccessFlag == "" || AdminManager.PlayerHasPermissions(player, Config.AccessFlag)))
-                    continue;
-
-                EnsurePlayerState(player);
-
-                var buttons = player.Buttons;
-
-                if ((buttons & PlayerButtons.Use) != 0 && !player.PlayerPawn.Value!.OnGroundLastTick)
-                {
-                    StartPara(player);
-                }
-                else if (bUsingPara[(int)player.Index])
-                {
-                    bUsingPara[(int)player.Index] = false;
-                    StopPara(player);
-                }
-            }
         });
 
         RegisterEventHandler<EventPlayerDeath>((@event, info) =>
@@ -141,95 +110,149 @@ public class Parachute : BasePlugin, IPluginConfig<ConfigGen>
             if (player == null || !player.IsValid)
                 return HookResult.Continue;
 
-            var idx = (int)player.Index;
-
-            // No more KeyNotFound: use TryGetValue
-            if (bUsingPara.TryGetValue(idx, out var usingPara) && usingPara)
-            {
-                bUsingPara[idx] = false;
-                StopPara(player);
-            }
+            if (_states.TryGetValue((int)player.Index, out var state) && state.UsingPara)
+                StopPara(state);
 
             return HookResult.Continue;
         }, HookMode.Pre);
+
+        RegisterListener<Listeners.OnTick>(OnTick);
     }
 
-    private void StopPara(CCSPlayerController player)
+    public override void Unload(bool hotReload) => StopAll();
+
+    // Handles sind nach Runden-/Mapwechsel sicher ungueltig, Remove greift dann nicht ins Leere
+    private void StopAll()
     {
-        var idx = (int)player.Index;
+        foreach (var state in _states.Values)
+            StopPara(state);
 
-        player.GravityScale = 1.0f;
-
-        if (gParaTicks.ContainsKey(idx))
-            gParaTicks[idx] = 0;
-
-        if (gParaModel.TryGetValue(idx, out var ent) && ent != null && ent.IsValid)
-        {
-            ent.Remove();
-            gParaModel[idx] = null;
-        }
+        _states.Clear();
     }
 
-    private void StartPara(CCSPlayerController player)
+    private void OnTick()
     {
-        EnsurePlayerState(player);
-        var idx = (int)player.Index;
-
-        if (!bUsingPara[idx])
+        foreach (var player in Utilities.GetPlayers())
         {
-            bUsingPara[idx] = true;
-            player.GravityScale = 0.1f;
+            if (player == null || !player.IsValid || player.IsBot)
+                continue;
 
-            if (Config.ParachuteModelEnabled)
+            var pawn = player.PlayerPawn.Value;
+            var alive = player.PawnIsAlive && pawn != null && pawn.IsValid;
+
+            // Nur normales Laufen/Fallen: keine Leiter, kein Noclip, kein Wasser usw.
+            var wantsPara = alive
+                && (player.Buttons & PlayerButtons.Use) != 0
+                && !pawn!.OnGroundLastTick
+                && pawn.MoveType == MoveType_t.MOVETYPE_WALK;
+
+            if (!_states.TryGetValue((int)player.Index, out var state))
             {
-                var entity = Utilities.CreateEntityByName<CDynamicProp>("prop_dynamic_override");
-                if (entity != null && entity.IsValid)
+                if (!wantsPara)
+                    continue;
+
+                state = GetState(player);
+            }
+
+            if (!wantsPara)
+            {
+                if (state.UsingPara)
+                    StopPara(state);
+                continue;
+            }
+
+            if (!state.UsingPara)
+            {
+                if (!HasAccess(player))
+                    continue;
+
+                StartPara(state);
+            }
+            else if (++state.PermissionTicks >= PermissionRecheckTicks)
+            {
+                state.PermissionTicks = 0;
+                if (!HasAccess(player))
                 {
-                    entity.MoveType = MoveType_t.MOVETYPE_NOCLIP;
-                    entity.Collision.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_NONE;
-                    entity.Collision.CollisionAttribute.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_NONE;
-
-                    entity.DispatchSpawn();
-                    entity.SetModel(Config.ParachuteModel);
-
-                    gParaModel[idx] = entity;
+                    StopPara(state);
+                    continue;
                 }
             }
+
+            UpdatePara(state, pawn!);
         }
+    }
 
-        var fallspeed = Config.FallSpeed * (-1.0f);
-        var velocity = player.PlayerPawn.Value?.AbsVelocity;
-        if (velocity == null) return;
+    private void ResetPlayer(CCSPlayerController player)
+    {
+        var idx = (int)player.Index;
+        if (_states.TryGetValue(idx, out var state))
+            StopPara(state);
 
-        var isFallSpeed = velocity.Z >= fallspeed;
+        _states[idx] = new ParaState();
+    }
+
+    private void StartPara(ParaState state)
+    {
+        state.UsingPara = true;
+        state.TeleportTicks = 0;
+        state.PermissionTicks = 0;
+
+        if (!Config.ParachuteModelEnabled)
+            return;
+
+        var entity = Utilities.CreateEntityByName<CDynamicProp>("prop_dynamic_override");
+        if (entity == null || !entity.IsValid)
+            return;
+
+        entity.MoveType = MoveType_t.MOVETYPE_NOCLIP;
+        entity.Collision.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_NONE;
+        entity.Collision.CollisionAttribute.CollisionGroup = (byte)CollisionGroup.COLLISION_GROUP_NONE;
+
+        entity.DispatchSpawn();
+        entity.SetModel(Config.ParachuteModel);
+
+        state.Model = new CHandle<CDynamicProp>(entity.EntityHandle.Raw);
+    }
+
+    private static void StopPara(ParaState state)
+    {
+        state.UsingPara = false;
+        state.TeleportTicks = 0;
+        state.PermissionTicks = 0;
+
+        var model = state.Model?.Value;
+        if (model != null && model.IsValid)
+            model.Remove();
+
+        state.Model = null;
+    }
+
+    private void UpdatePara(ParaState state, CCSPlayerPawn pawn)
+    {
+        var velocity = pawn.AbsVelocity;
+        var position = pawn.AbsOrigin;
+        var angle = pawn.AbsRotation;
 
         if (velocity.Z < 0.0f)
         {
+            var fallspeed = -Config.FallSpeed;
+            var isFallSpeed = velocity.Z >= fallspeed;
+
             if ((isFallSpeed && Config.Linear) || Config.DecreaseVec == 0.0f)
-            {
                 velocity.Z = fallspeed;
-            }
             else
+                velocity.Z += Config.DecreaseVec;
+
+            if (++state.TeleportTicks > Config.TeleportTicks)
             {
-                velocity.Z = velocity.Z + Config.DecreaseVec;
+                pawn.Teleport(position, angle, velocity);
+                state.TeleportTicks = 0;
             }
-
-            var position = player.PlayerPawn.Value?.AbsOrigin!;
-            var angle = player.PlayerPawn.Value?.AbsRotation!;
-
-            if (gParaTicks.TryGetValue(idx, out var ticks) && ticks > Config.TeleportTicks)
-            {
-                player.PlayerPawn.Value!.Teleport(position, angle, velocity);
-
-                gParaTicks[idx] = 0;
-            }
-
-            if (gParaModel.TryGetValue(idx, out var ent) && ent != null && ent.IsValid)
-            {
-                ent.Teleport(position, angle, velocity);
-            }
-
-            gParaTicks[idx] = gParaTicks.TryGetValue(idx, out var t) ? t + 1 : 1;
         }
+
+        // Modell immer mitfuehren, auch beim Steigen (z. B. Jumppad)
+        var model = state.Model?.Value;
+        if (model != null && model.IsValid)
+            model.Teleport(position, angle, velocity);
     }
 }
