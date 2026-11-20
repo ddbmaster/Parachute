@@ -3,33 +3,37 @@
 Ein stabiles und serverfreundliches **Parachute-Plugin für Counter-Strike 2**, basierend auf **CounterStrikeSharp**.  
 Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional mit einem Parachute-3D-Model.
 
+**Aktuelle Version:** 1.6.1
+
 ---
 
 ## ✅ Eigenschaften
 
-- ⚙️ .NET 10
+- ⚙️ Gebaut für .NET 10
 - 🔄 Hot-Reload-sicher
-- 🛡️ Keine KeyNotFound- oder Disconnect-Crashes
-- 🧠 Pawn-basierte Physik (CSS-konform)
-- 🚀 Zukunftssicher für kommende CounterStrikeSharp-Versionen
+- 🛡️ Keine KeyNotFound-, Disconnect- oder Respawn-Crashes
+- 🧠 Pawn-basierte Physik mit Gültigkeitsprüfung
+- 🧹 Sauberes Aufräumen bei Rundenstart, Mapwechsel und Plugin-Unload
+- 🪶 Ressourcenschonend: Rechteprüfung nur beim Öffnen und alle 64 Ticks
 
 ---
 
 ## ✨ Features
 
 - 🪂 Parachute beim Fallen über **USE-Taste (E)**
-- 🎮 Optionales Parachute-3D-Model
+- 🎮 Optionales Parachute-3D-Model, das dem Spieler folgt
 - 🔧 Vollständig konfigurierbar
 - 🔐 Admin-Flag-Unterstützung
-- ♻️ Stabil bei Death, Disconnect und Reload
+- 🪜 Kein Auslösen auf Leitern, im Wasser oder im Noclip
+- ♻️ Stabil bei Death, Disconnect, Rundenwechsel und Reload
 
 ---
 
 ## 📦 Voraussetzungen
 
 - 🎯 Counter-Strike 2 Server
-- 🧩 CounterStrikeSharp
-- ⚙️ .NET 10
+- 🧩 CounterStrikeSharp (API-Version 358 oder neuer)
+- ⚙️ .NET-Laufzeit von CounterStrikeSharp (.NET 10 oder neuer)
 - 🖥️ Windows oder Linux
 
 ---
@@ -37,7 +41,7 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
 ## 🛠️ Installation
 
 1. Plugin bauen oder Release-DLL herunterladen  
-2. DLL kopieren nach:  
+2. `Parachute.dll` kopieren nach:  
    ```
    csgo/addons/counterstrikesharp/plugins/Parachute/
    ```
@@ -46,6 +50,11 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
    ```
    csgo/addons/counterstrikesharp/configs/plugins/Parachute/Parachute.json
    ```
+
+### Update von 1.6.0
+
+Einfach die `Parachute.dll` ersetzen. Die bestehende `Parachute.json` bleibt unverändert gültig.  
+Eine eventuell vorhandene `Parachute.deps.json` im Plugin-Ordner kann gelöscht werden – sie wird nicht mehr benötigt.
 
 ---
 
@@ -60,7 +69,8 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
   "AccessFlag": "",
   "TeleportTicks": 300,
   "ParachuteModelEnabled": true,
-  "ParachuteModel": "models/props_survival/parachute/chute.vmdl"
+  "ParachuteModel": "models/props_survival/parachute/chute.vmdl",
+  "ConfigVersion": 1
 }
 ```
 
@@ -72,16 +82,16 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
 Plugin aktivieren oder deaktivieren  
 
 **DecreaseVec**  
-Reduzierung der Fallgeschwindigkeit pro Tick  
+Abbremsung der Fallgeschwindigkeit pro Tick (bei `0` wird sofort auf `FallSpeed` gesetzt)  
 
 **Linear**  
-Lineares Gleiten oder progressives Abbremsen  
+`true` = konstantes Gleiten mit `FallSpeed`, `false` = progressives Abbremsen über `DecreaseVec`  
 
 **FallSpeed**  
-Maximale Fallgeschwindigkeit  
+Maximale Fallgeschwindigkeit beim Gleiten  
 
 **AccessFlag**  
-Benötigtes Admin-Flag (leer = alle Spieler)  
+Benötigtes Admin-Flag, z. B. `@css/vip` (leer = alle Spieler)  
 
 **TeleportTicks**  
 Tick-Intervall zur Positionsstabilisierung  
@@ -92,6 +102,9 @@ Parachute-Model anzeigen
 **ParachuteModel**  
 Pfad zum `.vmdl`-Model  
 
+**ConfigVersion**  
+Wird von CounterStrikeSharp verwaltet – nicht ändern  
+
 ---
 
 ## 🎮 Benutzung
@@ -99,27 +112,32 @@ Pfad zum `.vmdl`-Model
 1. Springen oder fallen  
 2. **USE-Taste (E)** gedrückt halten  
 3. Spieler gleitet kontrolliert nach unten  
-4. Taste loslassen → normales Fallen  
+4. Taste loslassen oder landen → normales Verhalten  
 
 ---
 
-## 🧪 Build
 
-```powershell
-dotnet build -c Release
-```
+> Tipp: In der `Parachute.csproj` die Version von `CounterStrikeSharp.API` auf die Version setzen, die auf deinem Server installiert ist.
 
-Ausgabe:
-```
-bin/Release/net8.0/Parachute.dll
-```
+---
+
+## 📝 Changelog
+
+**1.6.1**
+- Möglichen Absturz beim Respawn behoben (Pawn-Prüfung)
+- Fallschirm-Model über Entity-Handle verwaltet – sicher bei Runden- und Mapwechsel
+- Kein Fallschirm mehr auf Leitern, im Wasser oder im Noclip
+- Model folgt dem Spieler auch beim Steigen (z. B. Jumppads)
+- Rechteprüfung nur beim Öffnen und alle 64 Ticks
+- Wirkungslose `GravityScale`-Änderung entfernt (Fallverhalten unverändert)
+- DLL-Version entspricht der Plugin-Version, keine `deps.json` mehr
 
 ---
 
 ## 👨‍💻 Autoren
 
 - **Franc1sco Franug** – Originalidee  
-- **ddbmaster** – Stabilisierung, .NET 8, CSS-Anpassungen  
+- **ddbmaster** – Stabilisierung, .NET 10, CSS-Anpassungen  
 
 ---
 
