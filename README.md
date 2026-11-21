@@ -3,7 +3,7 @@
 Ein stabiles und serverfreundliches **Parachute-Plugin für Counter-Strike 2**, basierend auf **CounterStrikeSharp**.  
 Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional mit einem Parachute-3D-Model.
 
-**Aktuelle Version:** 1.6.1
+**Aktuelle Version:** 1.6.2
 
 ---
 
@@ -51,7 +51,7 @@ Spieler können beim Fallen ein kontrolliertes Gleiten aktivieren – optional m
    csgo/addons/counterstrikesharp/configs/plugins/Parachute/Parachute.json
    ```
 
-### Update von 1.6.0
+### Update von 1.6.1
 
 Einfach die `Parachute.dll` ersetzen. Die bestehende `Parachute.json` bleibt unverändert gültig.  
 Eine eventuell vorhandene `Parachute.deps.json` im Plugin-Ordner kann gelöscht werden – sie wird nicht mehr benötigt.
@@ -122,6 +122,10 @@ Wird von CounterStrikeSharp verwaltet – nicht ändern
 ---
 
 ## 📝 Changelog
+
+**1.6.2**
+- Fallschirm funktioniert jetzt auch in der ersten Runde nach dem Mapstart (zu strenge Bewegungsprüfung aus 1.6.1 entschärft)
+- Umstellung auf .NET 10 und CounterStrikeSharp-API 1.0.380 (`MinimumApiVersion` 380)
 
 **1.6.1**
 - Möglichen Absturz beim Respawn behoben (Pawn-Prüfung)
